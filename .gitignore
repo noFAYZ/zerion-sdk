@@ -1,0 +1,17 @@
+node_modules 
+dist
+
+.env
+yarn-error.log
+.DS_Store
+# Logs
+logs
+
+npm-debug.log*
+
+.npm
+# Optional eslint cache
+.eslintcache
+
+.vscode/
+yarn.lock
