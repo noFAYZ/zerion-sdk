@@ -19,21 +19,21 @@ A comprehensive, production-ready TypeScript SDK for the Zerion API. Build power
 ## 📦 Installation
 
 ```bash
-npm install @zerion/sdk
+npm install zerion-sdk-ts
 ```
 
 ```bash
-yarn add @zerion/sdk
+yarn add zerion-sdk-ts
 ```
 
 ```bash
-pnpm add @zerion/sdk
+pnpm add zerion-sdk-ts
 ```
 
 ## 🚀 Quick Start
 
 ```typescript
-import { ZerionSDK } from '@zerion/sdk';
+import { ZerionSDK } from 'zerion-sdk-ts';
 
 // Initialize the SDK
 const zerion = new ZerionSDK({
@@ -1652,12 +1652,11 @@ const portfolio = await zerion.wallets.getPortfolio(address);
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/)
 
 ### Community
-- [GitHub Repository](https://github.com/zeriontech/zerion-sdk)
-- [Discord Community](https://discord.gg/zerion)
-- [Twitter](https://twitter.com/zerion_io)
+- [GitHub Repository](https://github.com/noFAYZ/zerion-sdk)
+
 
 ### Support
-- [GitHub Issues](https://github.com/zeriontech/zerion-sdk/issues)
+- [GitHub Issues](https://github.com/noFAYZ/zerion-sdk/issues)
 - [Support Email](mailto:api@zerion.io)
 - [API Status Page](https://status.zerion.io)
 
