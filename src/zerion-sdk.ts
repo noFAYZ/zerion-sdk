@@ -93,13 +93,13 @@ export class ZerionSDK {
       portfolio,
       positions,
       nftPortfolio,
-      pnl,
+     // pnl,
       transactions
     ] = await Promise.all([
       this.wallets.getPortfolio(address),
       this.wallets.getPositions(address, { page: { size: 50 } }),
       this.wallets.getNFTPortfolio(address),
-      this.wallets.getPnL(address),
+     // this.wallets.getPnL(address),
       this.wallets.getTransactions(address, { page: { size: 20 } })
     ]);
 
@@ -124,7 +124,7 @@ export class ZerionSDK {
       summary: portfolio.data,
       positions: positionsArray,
       nftPortfolio: nftPortfolio.data,
-      pnl: pnl.data,
+      pnl: "pnl.data", // Placeholder, would need pnl service
       recentActivity: Array.isArray(transactions.data) ? transactions.data : [],
       chainDistribution,
       topAssets
