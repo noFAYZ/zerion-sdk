@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { ZerionConfig, ZerionAPIError, Environment } from '../types';
+import { isBrowser, isNode, encodeBase64, getHttpClientConfig } from '../utils/environment'
 
 export class HttpClient {
   private client: AxiosInstance;
@@ -12,14 +13,28 @@ export class HttpClient {
     this.retries = config.retries || 3;
     this.retryDelay = config.retryDelay || 1000;
 
+    const httpConfig = getHttpClientConfig();
+
+    // Create base headers that work in both environments
+    const baseHeaders: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+
+    // Only add User-Agent in server environments
+    if (httpConfig.supportsUserAgent) {
+      baseHeaders['User-Agent'] = 'Zerion SDK/1.0.0';
+    }
+
     this.client = axios.create({
       baseURL: config.baseURL || 'https://api.zerion.io',
       timeout: config.timeout || 30000,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'User-Agent': 'Zerion SDK/1.0.0',
-      },
+      headers: baseHeaders,
+      // Environment-specific configuration
+      ...(httpConfig.isBrowser && {
+        withCredentials: false,
+        adapter: 'xhr' // Force XMLHttpRequest adapter for better browser compatibility
+      })
     });
 
     this.setupAuth();
@@ -32,18 +47,28 @@ export class HttpClient {
   }
 
   private createAuthHeader(apiKey: string): string {
-    const encoded = Buffer.from(`${apiKey}:`).toString('base64');
-    return `Basic ${encoded}`;
+    return `Basic ${encodeBase64(`${apiKey}:`)}`;
   }
 
   private setupInterceptors(): void {
+    const httpConfig = getHttpClientConfig();
+
     // Request interceptor
     this.client.interceptors.request.use(
       (config) => {
-        // Simple logging without metadata
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[Zerion SDK] → ${config.method?.toUpperCase()} ${config.url}`);
+        // Browser-specific request modifications
+        if (httpConfig.isBrowser) {
+          // Remove any headers that browsers don't allow
+          delete config.headers['User-Agent'];
+          
+          // Handle potential CORS preflight issues
+          if (config.method?.toLowerCase() === 'get') {
+            // For GET requests, we can sometimes avoid preflight
+            config.headers['Content-Type'] = 'application/json';
+          }
         }
+
+    
         return config;
       },
       (error) => Promise.reject(this.handleError(error))
@@ -52,18 +77,39 @@ export class HttpClient {
     // Response interceptor
     this.client.interceptors.response.use(
       (response) => {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[Zerion SDK] ← ${response.status} ${response.config.method?.toUpperCase()} ${response.config.url}`);
-        }
+  
         return response;
       },
       async (error) => {
+        // Handle CORS errors specifically
+        if (httpConfig.isBrowser && this.isCorsError(error)) {
+          const corsError = new ZerionAPIError(
+            'CORS error: This request must be made from a server environment or through a proxy. Browser requests are limited to localhost, 127.0.0.1, and *.local domains.',
+            'CORS_ERROR',
+            undefined,
+            error
+          );
+          return Promise.reject(corsError);
+        }
+
         // Simple retry logic
         if (this.shouldRetry(error)) {
           return this.retryRequest(error);
         }
         return Promise.reject(this.handleError(error));
       }
+    );
+  }
+
+  private isCorsError(error: AxiosError): boolean {
+    // Check if it's a CORS error
+    return (
+      !error.response && 
+      error.code === 'ERR_NETWORK' &&
+      error.message.includes('CORS')
+    ) || (
+      error.message.includes('Access to XMLHttpRequest') &&
+      error.message.includes('CORS policy')
     );
   }
 
@@ -82,7 +128,14 @@ export class HttpClient {
   }
 
   private shouldRetry(error: AxiosError): boolean {
-    if (!error.response) return true; // Network errors
+    if (!error.response) {
+      // Don't retry CORS errors
+      const httpConfig = getHttpClientConfig();
+      if (httpConfig.isBrowser && this.isCorsError(error)) {
+        return false;
+      }
+      return true; // Network errors
+    }
     
     const status = error.response.status;
     return status >= 500 || status === 429 || status === 408;
@@ -93,6 +146,8 @@ export class HttpClient {
   }
 
   private handleError(error: unknown): ZerionAPIError {
+    const httpConfig = getHttpClientConfig();
+    
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       
@@ -109,8 +164,19 @@ export class HttpClient {
         );
       } else if (axiosError.request) {
         // Request made but no response received
+        let message = 'Network error: No response received from server';
+        
+        // Provide more specific error messages for browser environment
+        if (httpConfig.isBrowser) {
+          if (this.isCorsError(axiosError)) {
+            message = 'CORS error: Cross-origin request blocked. For production use, proxy requests through your backend server.';
+          } else if (axiosError.code === 'ERR_NETWORK') {
+            message = 'Network error: Unable to connect to Zerion API. Check your internet connection and ensure the API is accessible.';
+          }
+        }
+        
         return new ZerionAPIError(
-          'Network error: No response received from server',
+          message,
           'NETWORK_ERROR',
           undefined,
           axiosError.request
@@ -190,5 +256,37 @@ export class HttpClient {
 
   public setRetryDelay(delay: number): void {
     this.retryDelay = delay;
+  }
+
+  // Method to check if running in browser environment
+  public isBrowserEnvironment(): boolean {
+    return isBrowser();
+  }
+
+  // Method to get environment-specific recommendations
+  public getEnvironmentInfo(): { environment: 'browser' | 'server'; recommendations: string[] } {
+    const httpConfig = getHttpClientConfig();
+    
+    if (httpConfig.isBrowser) {
+      return {
+        environment: 'browser',
+        recommendations: [
+          'For production use, consider proxying API requests through your backend server',
+          'CORS is limited to localhost, 127.0.0.1, and *.local domains',
+          'API keys should be kept secure and not exposed in client-side code',
+          'Consider using environment variables for API keys in development'
+        ]
+      };
+    } else {
+      return {
+        environment: 'server',
+        recommendations: [
+          'Full API access available in server environment',
+          'Store API keys securely using environment variables',
+          'Consider implementing rate limiting for high-volume applications',
+          'Use connection pooling for better performance'
+        ]
+      };
+    }
   }
 }
